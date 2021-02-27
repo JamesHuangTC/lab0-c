@@ -120,10 +120,11 @@ bool q_remove_head(queue_t *q, char *sp, size_t bufsize)
     list_ele_t *indirect = q->head;
 
     if (sp) {
-        int realsize = bufsize - 1 > strlen(q->head->value)
+        int copy_len = bufsize - 1 > strlen(q->head->value)
                            ? strlen(q->head->value)
                            : bufsize - 1;
-        strncpy(sp, q->head->value, realsize + 1);
+        sp[copy_len] = '\0';
+        strncpy(sp, q->head->value, copy_len);
     }
     q->head = indirect->next;
     free(indirect->value);
@@ -177,49 +178,52 @@ void q_reverse(queue_t *q)
  */
 list_ele_t *merge(list_ele_t *l1, list_ele_t *l2)
 {
-    if (!l1) {
-        return l2;
-    }
-    if (!l2) {
+    // merge with recursive
+    if (!l2)
         return l1;
-    }
-    size_t len_l1 = strlen(l1->value), len_l2 = strlen(l2->value);
-    if (len_l1 < len_l2) {
-        len_l1 = len_l2;
-    }
-    if (strncmp(l1->value, l2->value, len_l1) <= 0) {
+    if (!l1)
+        return l2;
+
+    int cmp_result = strcmp(l1->value, l2->value);
+    if (cmp_result <= 0) {
         l1->next = merge(l1->next, l2);
         return l1;
     } else {
-        l2->next = merge(l1->next, l1);
+        l2->next = merge(l1, l2->next);
         return l2;
     }
 }
-
 list_ele_t *merge_sort(list_ele_t *head)
 {
-    if (!head || !head->next) {
+    if (!head || !head->next)
         return head;
-    }
+
     list_ele_t *fast = head->next;
     list_ele_t *slow = head;
 
+    // split list
     while (fast && fast->next) {
         slow = slow->next;
         fast = fast->next->next;
     }
     fast = slow->next;
     slow->next = NULL;
+
+    // sort each list
     list_ele_t *l1 = merge_sort(head);
     list_ele_t *l2 = merge_sort(fast);
+
+    // merge sorted l1 and sorted l2
     return merge(l1, l2);
 }
 
 void q_sort(queue_t *q)
 {
-    if (!q || !q->head) {
+    // if q has only one element or q is empty, q->head == q->tail
+    if (!q || q->size <= 1) {
         return;
     }
+
     q->head = merge_sort(q->head);
 
     while (q->tail->next) {
