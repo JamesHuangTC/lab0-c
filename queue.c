@@ -90,7 +90,6 @@ bool q_insert_tail(queue_t *q, char *s)
         return false;
     }
 
-
     strncpy(newt->value, s, strlen(s) + 1);
     newt->next = NULL;
 
@@ -176,23 +175,31 @@ void q_reverse(queue_t *q)
  * No effect if q is NULL or empty. In addition, if q has only one
  * element, do nothing.
  */
+
 list_ele_t *merge(list_ele_t *l1, list_ele_t *l2)
 {
-    // merge with recursive
-    if (!l2)
-        return l1;
-    if (!l1)
-        return l2;
+    list_ele_t *head = NULL;
+    list_ele_t **tmp = &head;
 
-    int cmp_result = strcmp(l1->value, l2->value);
-    if (cmp_result <= 0) {
-        l1->next = merge(l1->next, l2);
-        return l1;
-    } else {
-        l2->next = merge(l1, l2->next);
-        return l2;
+    while (l1 && l2) {
+        if (strcmp(l1->value, l2->value) < 0) {
+            *tmp = l1;
+            l1 = l1->next;
+        } else {
+            *tmp = l2;
+            l2 = l2->next;
+        }
+        tmp = &((*tmp)->next);
     }
+
+    if (l1)
+        *tmp = l1;
+    if (l2)
+        *tmp = l2;
+
+    return head;
 }
+
 list_ele_t *merge_sort(list_ele_t *head)
 {
     if (!head || !head->next)
@@ -201,7 +208,6 @@ list_ele_t *merge_sort(list_ele_t *head)
     list_ele_t *fast = head->next;
     list_ele_t *slow = head;
 
-    // split list
     while (fast && fast->next) {
         slow = slow->next;
         fast = fast->next->next;
@@ -209,17 +215,14 @@ list_ele_t *merge_sort(list_ele_t *head)
     fast = slow->next;
     slow->next = NULL;
 
-    // sort each list
     list_ele_t *l1 = merge_sort(head);
     list_ele_t *l2 = merge_sort(fast);
 
-    // merge sorted l1 and sorted l2
     return merge(l1, l2);
 }
 
 void q_sort(queue_t *q)
 {
-    // if q has only one element or q is empty, q->head == q->tail
     if (!q || q->size <= 1) {
         return;
     }
