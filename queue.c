@@ -119,9 +119,12 @@ bool q_remove_head(queue_t *q, char *sp, size_t bufsize)
 
     list_ele_t *indirect = q->head;
 
-    if (sp)
-        strncpy(sp, indirect->value, bufsize - 1);
-
+    if (sp) {
+        int realsize = bufsize - 1 > strlen(q->head->value)
+                           ? strlen(q->head->value)
+                           : bufsize - 1;
+        strncpy(sp, q->head->value, realsize + 1);
+    }
     q->head = indirect->next;
     free(indirect->value);
     free(indirect);
