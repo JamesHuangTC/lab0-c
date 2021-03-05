@@ -18,7 +18,8 @@
 #include "report.h"
 
 /* Some global values */
-bool simulation = false;
+// bool simulation = false;
+int simulation = 0;
 static cmd_ptr cmd_list = NULL;
 static param_ptr param_list = NULL;
 static bool block_flag = false;
@@ -56,7 +57,8 @@ static int fd_max = 0;
 /* Parameters */
 static int err_limit = 5;
 static int err_cnt = 0;
-static bool echo = 0;
+// static bool echo = 0;
+static int echo = 0;
 
 static bool quit_flag = false;
 static char *prompt = "cmd> ";
@@ -304,7 +306,7 @@ static bool do_help_cmd(int argc, char *argv[])
     param_ptr plist = param_list;
     report(1, "Options:");
     while (plist) {
-        report(1, "\t%s\t%d\t%s", plist->name, plist->valp,
+        report(1, "\t%s\t%d\t%s", plist->name, *(plist->valp),
                plist->documentation);
         plist = plist->next;
     }
