@@ -1,6 +1,7 @@
 /* Implementation of testing code for queue code */
 
 #include <getopt.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -12,6 +13,10 @@
 #include <time.h>
 #include <unistd.h>
 #include "dudect/fixture.h"
+
+/* tiny-web-server */
+#include "tiny.h"
+jmp_buf jmpbuffer;
 
 /* Our program needs to use regular malloc/free */
 #define INTERNAL 1
@@ -33,6 +38,7 @@
 
 #include "console.h"
 #include "report.h"
+
 
 /* Settable parameters */
 
@@ -64,6 +70,9 @@ static int string_length = MAXSTRING;
 #define MAX_RANDSTR_LEN 10
 static const char charset[] = "abcdefghijklmnopqrstuvwxyz";
 
+/* web-server-pid */
+pid_t pid_server;
+
 /* Forward declarations */
 static bool show_queue(int vlevel);
 static bool do_new(int argc, char *argv[]);
@@ -76,6 +85,9 @@ static bool do_reverse(int argc, char *argv[]);
 static bool do_size(int argc, char *argv[]);
 static bool do_sort(int argc, char *argv[]);
 static bool do_show(int argc, char *argv[]);
+static bool do_web(int argc, char *argv[]);
+
+
 
 static void queue_init();
 
@@ -92,14 +104,19 @@ static void console_init()
     add_cmd("rh", do_remove_head,
             " [str]          | Remove from head of queue.  Optionally compare "
             "to expected value str");
-    add_cmd(
-        "rhq", do_remove_head_quiet,
-        "                | Remove from head of queue without reporting value.");
+    add_cmd("rhq", do_remove_head_quiet,
+            "                | Remove from head of queue without reporting "
+            "value.");
     add_cmd("reverse", do_reverse, "                | Reverse queue");
     add_cmd("sort", do_sort, "                | Sort queue in ascending order");
     add_cmd("size", do_size,
             " [n]            | Compute queue size n times (default: n == 1)");
     add_cmd("show", do_show, "                | Show queue contents");
+
+
+    add_cmd("web", do_web, "                | Run web server");
+
+
     add_param("length", &string_length, "Maximum length of displayed string",
               NULL);
     add_param("malloc", &fail_probability, "Malloc failure probability percent",
@@ -107,6 +124,7 @@ static void console_init()
     add_param("fail", &fail_limit,
               "Number of times allow queue operations to return false", NULL);
 }
+
 
 static bool do_new(int argc, char *argv[])
 {
@@ -332,14 +350,16 @@ static bool do_remove_head(int argc, char *argv[])
     char *removes = malloc(string_length + STRINGPAD + 1);
     if (!removes) {
         report(1,
-               "INTERNAL ERROR.  Could not allocate space for removed strings");
+               "INTERNAL ERROR.  Could not allocate space for removed "
+               "strings");
         return false;
     }
 
     char *checks = malloc(string_length + 1);
     if (!checks) {
         report(1,
-               "INTERNAL ERROR.  Could not allocate space for removed strings");
+               "INTERNAL ERROR.  Could not allocate space for removed "
+               "strings");
         free(removes);
         return false;
     }
@@ -374,8 +394,8 @@ static bool do_remove_head(int argc, char *argv[])
         }
 
         /*
-         * Check whether padding in array removes are still initial value 'X'.
-         * If there's other character in padding, it's overflowed.
+         * Check whether padding in array removes are still initial value
+         * 'X'. If there's other character in padding, it's overflowed.
          */
         int i = string_length + 1;
         while ((i < string_length + STRINGPAD) && (removes[i] == 'X'))
@@ -609,10 +629,10 @@ static bool show_queue(int vlevel)
             report(vlevel, " ... ]");
     } else {
         report(vlevel, " ... ]");
-        report(
-            vlevel,
-            "ERROR:  Either list has cycle, or queue has more than %d elements",
-            qcnt);
+        report(vlevel,
+               "ERROR:  Either list has cycle, or queue has more than %d "
+               "elements",
+               qcnt);
         ok = false;
     }
 
@@ -663,6 +683,9 @@ static bool queue_quit(int argc, char *argv[])
         q_free(q);
     exception_cancel();
     set_cautious_mode(true);
+
+    // Kill the web-server
+    kill(pid_server, SIGKILL);
 
     size_t bcnt = allocation_check();
     if (bcnt > 0) {
@@ -716,6 +739,73 @@ static bool sanity_check()
     return true;
 }
 
+static bool do_web(int argc, char *argv[])
+{
+    if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
+        print_help();
+        return 0;
+    }
+
+    struct sockaddr_in clientaddr;
+    int default_port = DEFAULT_PORT, listenfd, connfd;
+    char buf[256];
+    char *path = getcwd(buf, 256);
+    socklen_t clientlen = sizeof clientaddr;
+    if (argc == 2) {
+        if (argv[1][0] >= '0' && argv[1][0] <= '9') {
+            default_port = atoi(argv[1]);
+        } else {
+            path = argv[1];
+            if (chdir(path) != 0) {
+                perror(path);
+                exit(1);
+            }
+        }
+    } else if (argc == 3) {
+        default_port = atoi(argv[2]);
+        path = argv[1];
+        if (chdir(path) != 0) {
+            perror(path);
+            exit(1);
+        }
+    }
+    printf("serve directory '%s'\n", path);
+
+    listenfd = open_listenfd(default_port);
+    if (listenfd > 0) {
+        printf("listen on port %d, fd is %d\n", default_port, listenfd);
+    } else {
+        perror("ERROR");
+        exit(listenfd);
+    }
+    // Ignore SIGPIPE signal, so if browser cancels the request, it
+    // won't kill the whole process.
+    signal(SIGPIPE, SIG_IGN);
+    // int i = 0;
+    // for (; i < FORK_COUNT; i++) {
+    pid_server = fork();
+    if (pid_server == 0) {  //  child
+        while (1) {
+            connfd = accept(listenfd, (SA *) &clientaddr, &clientlen);
+            process(connfd, &clientaddr);
+            close(connfd);
+        }
+    } else if (pid_server > 0) {  //  parent
+        printf("child pid is %d\n", pid_server);
+        longjmp(jmpbuffer, 1);
+    } else {
+        perror("fork");
+    }
+    // }
+    while (1) {
+        connfd = accept(listenfd, (SA *) &clientaddr, &clientlen);
+        process(connfd, &clientaddr);
+        close(connfd);
+    }
+
+    return 0;
+}
+
 
 #define BUFSIZE 256
 int main(int argc, char *argv[])
@@ -764,7 +854,6 @@ int main(int argc, char *argv[])
 
     /* Trigger call back function(auto completion) */
     linenoiseSetCompletionCallback(completion);
-
     linenoiseHistorySetMaxLen(HISTORY_LEN);
     linenoiseHistoryLoad(HISTORY_FILE); /* Load the history at startup */
     set_verblevel(level);
@@ -777,8 +866,10 @@ int main(int argc, char *argv[])
     add_quit_helper(queue_quit);
 
     bool ok = true;
-    ok = ok && run_console(infile_name);
-    ok = ok && finish_cmd();
 
+    setjmp(jmpbuffer);
+    ok = ok && run_console(infile_name);
+
+    ok = ok && finish_cmd();
     return ok ? 0 : 1;
 }

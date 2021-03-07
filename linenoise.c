@@ -886,11 +886,9 @@ static int linenoiseEdit(int stdin_fd,
         char c;
         int nread;
         char seq[3];
-
         nread = read(l.ifd, &c, 1);
         if (nread <= 0)
             return l.len;
-
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
@@ -1091,7 +1089,6 @@ static int linenoiseRaw(char *buf, size_t buflen, const char *prompt)
         errno = EINVAL;
         return -1;
     }
-
     if (enableRawMode(STDIN_FILENO) == -1)
         return -1;
     count = linenoiseEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
